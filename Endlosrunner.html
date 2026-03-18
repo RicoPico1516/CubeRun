@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>CubeRun - Alpha 1.0.0</title>
+    <style>
+        :root { --player-color: #e74c3c; --particle-color: transparent; }
+        body { margin: 0; background: #121212; color: white; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
+        header { width: 100%; background: #1f1f1f; padding: 15px; display: flex; justify-content: space-around; align-items: center; border-bottom: 4px solid #f1c40f; }
+
+        .main-layout { display: flex; gap: 20px; margin-top: 20px; padding: 20px; }
+        #game-container { position: relative; }
+        #game-world {
+            width: 800px; height: 400px; background: #fff; border-radius: 12px; position: relative; overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            background-image: linear-gradient(#e0e0e0 1px, transparent 1px), linear-gradient(90deg, #e0e0e0 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        #player { 
+            width: 36px; height: 36px; position: absolute; bottom: 0; left: 60px; 
+            background: var(--player-color); border-radius: 6px; z-index: 10; 
+            transition: bottom 0.1s ease-out;
+        }
+        #player.start-ready {
+            animation: pulse 1.5s infinite;
+            box-shadow: 0 0 20px var(--player-color);
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .particle { position: absolute; width: 6px; height: 6px; background: var(--particle-color); border-radius: 50%; z-index: 5; pointer-events: none; }
+        .coin-popup { position: absolute; color: #f1c40f; font-weight: bold; font-size: 20px; z-index: 15; pointer-events: none; }
+        .obs { position: absolute; bottom: 0; background: #2c3e50; border-radius: 4px; }
+        .coin { width: 25px; height: 25px; background: #f1c40f; position: absolute; border-radius: 50%; border: 3px solid #d4ac0d; box-shadow: 0 0 10px #f1c40f; }
+
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 100; border-radius: 12px; }
+        .sidebar { width: 320px; background: #1f1f1f; padding: 20px; border-radius: 12px; border: 1px solid #333; height: 500px; display: flex; flex-direction: column; }
+        #shop-content { flex-grow: 1; overflow-y: auto; margin-top: 10px; }
+        
+        .shop-item { 
+            display: flex; justify-content: space-between; padding: 12px; 
+            background: #2a2a2a; margin-bottom: 8px; border-radius: 8px; 
+            cursor: pointer; border: 1px solid transparent; transition: all 0.2s; 
+            position: relative;
+        }
+        .shop-item.active, .shop-item:hover:not(.locked) { 
+            border-color: #f1c40f; background: #3d3d29; 
+        }
+        .shop-item.locked {
+            opacity: 0.5; cursor: not-allowed;
+        }
+        .shop-item.locked::after {
+            content: "⏸️ Pause!"; position: absolute; right: 10px; top: 50%;
+            transform: translateY(-50%); color: #e74c3c; font-size: 12px;
+        }
+        
+        .tab-menu { display: flex; gap: 5px; }
+        .tab-btn { flex: 1; padding: 10px; background: #333; border: none; color: white; cursor: pointer; border-radius: 6px; font-weight: bold; transition: background 0.2s; }
+        .tab-btn.active, .tab-btn:hover { background: #3498db; }
+
+        .key-config-box { background: #222; padding: 20px; border-radius: 10px; border: 2px dashed #f1c40f; margin: 15px; cursor: pointer; min-width: 180px; text-align: center; transition: background 0.2s; }
+        .key-config-box:hover { background: #333; }
+        button { padding: 12px 24px; background: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        button:hover { background: #2980b9; }
+
+        /* ✅ NEU: Todesbildschirm Timer */
+        #death-timer {
+            font-size: 2em; color: #f1c40f; font-weight: bold;
+            text-shadow: 0 0 10px #f1c40f; animation: countdown 0.5s infinite alternate;
+        }
+        @keyframes countdown {
+            from { transform: scale(1); }
+            to { transform: scale(1.05); }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="font-size: 1.2em;">Geld: <span id="coin-display" style="color:#f1c40f">0</span></div>
+    <h1 style="margin:0;">CubeRun <small style="font-size: 0.4em;">Alpha 1.0.0</small></h1>
+    <button onclick="openSettings()">Einstellungen ⚙️</button>
+</header>
+
+<div class="main-layout">
+    <div id="game-container">
+        <div id="game-world"><div id="player"></div></div>
+        
+        <div id="settings-screen" class="overlay">
+            <h2>Einstellungen</h2>
+            <p>Klicke das Feld zum Ändern der Sprungtaste:</p>
+            <div id="key-display" class="key-config-box" onclick="startCapture()">Space</div>
+            <button onclick="closeSettings()" style="background:#2ecc71">Schließen</button>
+        </div>
+
+        <div id="death-screen" class="overlay">
+            <h2 style="color:#e74c3c; font-size: 3em; margin: 0;">CRASH</h2>
+            <div id="death-timer">5</div>
+            <button onclick="resetGame()">Neustart (R)</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="tab-menu">
+            <button class="tab-btn active" id="tab-c" onclick="setTab('cubes')">Cubes</button>
+            <button class="tab-btn" id="tab-t" onclick="setTab('trails')">Trails</button>
+        </div>
+        <div id="shop-content"></div>
+    </div>
+</div>
+
+<script>
+    // --- BALANCED ECONOMY DATA ---
+    let coins = parseInt(localStorage.getItem('totalCoins')) || 0;
+    let unlockedSkins = JSON.parse(localStorage.getItem('unlockedSkins')) || ['#e74c3c'];
+    let unlockedTrails = JSON.parse(localStorage.getItem('unlockedTrails')) || ['transparent'];
+    let currentSkin = localStorage.getItem('currentSkin') || '#e74c3c';
+    let currentTrail = localStorage.getItem('currentTrail') || 'transparent';
+    let jumpKey = localStorage.getItem('jumpKey') || 'Space';
+
+    const skins = [
+        { name: "Rot", color: "#e74c3c", price: 0, mult: 1 },
+        { name: "Grau", color: "#95a5a6", price: 50, mult: 2 },
+        { name: "Blau", color: "#3498db", price: 120, mult: 3 },
+        { name: "Hell-Grün", color: "#2ecc71", price: 300, mult: 4 },
+        { name: "Bronze", color: "#cd7f32", price: 750, mult: 5 },
+        { name: "Silver", color: "#bdc3c7", price: 1120, mult: 6 },
+        { name: "Amethyst", color: "#9b59b6", price: 1300, mult: 7 },
+        { name: "Gold", color: "#f1c40f", price: 1750, mult: 8 },
+        { name: "Diamond", color: "#00d2d3", price: 3000, mult: 9 },
+        { name: "Void", color: "#2d3436", price: 7500, mult: 10 }
+    ];
+
+    const trails = [
+        { name: "None", color: "transparent", price: 0 },
+        { name: "Sky", color: "#74b9ff", price: 500 },
+        { name: "Toxic", color: "#55efc4", price: 2500 },
+        { name: "Magma", color: "#ff7675", price: 10000 },
+        { name: "Cosmic", color: "#a29bfe", price: 50000 }
+    ];
+
+    let gameActive = false, isPaused = false, isCapturing = false, currentTab = 'cubes', hasStarted = false;
+    let bottomPos = 0, velocityY = 0, isJumping = false;
+    let obstacles = [], gameCoins = [], particles = [], spawnTimer = 0;
+    let deathCountdown = 0; // ✅ COUNTDOWN 5 → 0
+
+    // --- UTILITY FUNCTIONS ---
+    function prettyKey(code) {
+        return code === "Space" ? "Space" :
+               code.startsWith("Key") ? code.slice(3) : code;
+    }
+
+    function showCoinPopup(amount, posY) {
+        const el = document.createElement('div');
+        el.textContent = "+" + amount;
+        el.className = 'coin-popup';
+        el.style.left = "80px";
+        el.style.bottom = (posY + 50) + "px";
+        document.getElementById('game-world').appendChild(el);
+        
+        let animY = 0;
+        const anim = () => {
+            animY += 1;
+            el.style.bottom = (posY + 50 + animY) + "px";
+            el.style.opacity = (1 - animY / 30);
+            if (animY < 30) requestAnimationFrame(anim);
+            else el.remove();
+        };
+        anim();
+    }
+
+    function updateUI() {
+        document.getElementById('coin-display').innerText = coins.toLocaleString();
+        document.getElementById('key-display').innerText = prettyKey(jumpKey);
+        document.documentElement.style.setProperty('--player-color', currentSkin);
+        document.documentElement.style.setProperty('--particle-color', currentTrail);
+    }
+
+    function save() {
+        localStorage.setItem('totalCoins', coins);
+        localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+        localStorage.setItem('unlockedTrails', JSON.stringify(unlockedTrails));
+        localStorage.setItem('currentSkin', currentSkin);
+        localStorage.setItem('currentTrail', currentTrail);
+        localStorage.setItem('jumpKey', jumpKey);
+    }
+
+    function setTab(t) {
+        currentTab = t;
+        document.getElementById('tab-c').classList.toggle('active', t === 'cubes');
+        document.getElementById('tab-t').classList.toggle('active', t === 'trails');
+        renderShop();
+    }
+
+    function renderShop() {
+        const cont = document.getElementById('shop-content');
+        cont.innerHTML = '';
+        const list = currentTab === 'cubes' ? skins : trails;
+        const unlocked = currentTab === 'cubes' ? unlockedSkins : unlockedTrails;
+        const active = currentTab === 'cubes' ? currentSkin : currentTrail;
+
+        list.forEach(item => {
+            const isOwned = unlocked.includes(item.color);
+            const isLocked = gameActive && !isPaused;
+            
+            const div = document.createElement('div');
+            div.className = `shop-item ${active === item.color ? 'active' : ''} ${isLocked ? 'locked' : ''}`;
+            div.innerHTML = `
+                <div><b>${item.name}</b>${item.mult ? ' (x'+item.mult+')' : ''}</div>
+                <div style="color: #f1c40f;">${isOwned ? 'OWNED' : item.price.toLocaleString() + ' C'}</div>
+            `;
+            
+            div.onclick = () => {
+                if (isLocked) return;
+                
+                const isCubes = currentTab === 'cubes';
+                const unlockedList = isCubes ? unlockedSkins : unlockedTrails;
+                
+                if (isOwned) {
+                    if (isCubes) currentSkin = item.color;
+                    else currentTrail = item.color;
+                } else if (coins >= item.price) {
+                    coins -= item.price;
+                    unlockedList.push(item.color);
+                    if (isCubes) currentSkin = item.color;
+                    else currentTrail = item.color;
+                }
+                save();
+                updateUI();
+                renderShop();
+            };
+            cont.appendChild(div);
+        });
+    }
+
+    // --- SETTINGS ---
+    function startCapture() { 
+        isCapturing = true; 
+        document.getElementById('key-display').innerText = "DRÜCKE TASTE..."; 
+    }
+
+    function openSettings() { isPaused = true; document.getElementById('settings-screen').style.display = 'flex'; }
+    function closeSettings() { 
+        isPaused = false; 
+        document.getElementById('settings-screen').style.display = 'none'; 
+    }
+    function resetGame() { location.reload(); }
+
+    // --- INPUT ---
+    window.addEventListener('keydown', (e) => {
+        if (isCapturing) {
+            jumpKey = e.code === "Space" ? "Space" : e.code;
+            isCapturing = false; 
+            updateUI(); 
+            save();
+            return;
+        }
+        
+        if ((e.code === jumpKey || (jumpKey === "Space" && e.code === "Space")) && 
+            !isJumping && !isPaused && !hasStarted) { 
+            gameActive = true;
+            hasStarted = true;
+            velocityY = 18;
+            isJumping = true;
+            document.getElementById('player').classList.remove('start-ready');
+            return;
+        }
+        
+        if ((e.code === jumpKey || (jumpKey === "Space" && e.code === "Space")) && 
+            !isJumping && gameActive && !isPaused) { 
+            velocityY = 16; 
+            isJumping = true; 
+        }
+        if (e.code === 'KeyR' && !gameActive) resetGame();
+    });
+
+    // --- GAME LOOP ---
+    function gameLoop() {
+        requestAnimationFrame(gameLoop);
+
+        // STARPOSITION
+        if (!gameActive && !isPaused && !hasStarted) {
+            document.getElementById('player').classList.add('start-ready');
+            return;
+        }
+
+        // ✅ COUNTDOWN-TIMER ANZEIGE
+        if (!gameActive && deathCountdown > 0) {
+            const secondsLeft = Math.ceil(deathCountdown / 60); // 60fps
+            document.getElementById('death-timer').textContent = secondsLeft;
+            
+            deathCountdown--;
+            if (deathCountdown <= 0) {
+                // AUTO-RESTART!
+                document.getElementById('death-screen').style.display = 'none';
+                gameActive = false;
+                hasStarted = false;
+                obstacles = [];
+                gameCoins = [];
+                particles = [];
+                spawnTimer = 0;
+                bottomPos = 0;
+                velocityY = 0;
+                isJumping = false;
+                document.getElementById('player').classList.add('start-ready');
+            }
+            return;
+        }
+
+        if (!gameActive || isPaused) return;
+
+        // Player Physics
+        velocityY -= 0.8; 
+        bottomPos += velocityY;
+        if (bottomPos <= 0) { 
+            bottomPos = 0; 
+            velocityY = 0; 
+            isJumping = false; 
+        }
+        document.getElementById('player').style.bottom = bottomPos + "px";
+
+        // Trail Particles
+        if (Math.random() > 0.6 && currentTrail !== 'transparent') {
+            const p = document.createElement('div');
+            p.className = 'particle'; 
+            p.style.background = currentTrail;
+            p.style.left = "70px"; 
+            p.style.bottom = (bottomPos + 10) + "px";
+            document.getElementById('game-world').appendChild(p);
+            particles.push({ el: p, x: 70, life: 1.0 });
+        }
+
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x -= 7; 
+            p.life -= 0.04;
+            p.el.style.left = p.x + "px"; 
+            p.el.style.opacity = p.life;
+            if (p.life <= 0) { 
+                p.el.remove(); 
+                particles.splice(i, 1); 
+            }
+        }
+
+        // SPAWN
+        if (hasStarted) {
+            spawnTimer++;
+            if (spawnTimer > 60) {
+                const isCoin = Math.random() < 0.5;
+                const el = document.createElement('div');
+                if (isCoin) {
+                    el.className = 'coin'; 
+                    el.style.bottom = "0px";
+                    document.getElementById('game-world').appendChild(el); 
+                    gameCoins.push({ el, x: 820 });
+                } else {
+                    el.className = 'obs'; 
+                    el.style.width = "30px"; 
+                    el.style.height = "40px";
+                    el.style.bottom = "0px";
+                    document.getElementById('game-world').appendChild(el); 
+                    obstacles.push({ el, x: 820 });
+                }
+                spawnTimer = 0;
+            }
+        }
+
+        // OBSTACLES
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            const o = obstacles[i];
+            o.x -= 9; 
+            o.el.style.left = o.x + "px";
+            if (o.x < 95 && o.x > 55 && bottomPos < 40) {
+                gameActive = false; 
+                deathCountdown = 300;  // ✅ 5 SEKUNDEN COUNTDOWN (300 frames)
+                document.getElementById('death-screen').style.display = 'flex';
+            }
+            if (o.x < -50) { 
+                o.el.remove(); 
+                obstacles.splice(i, 1); 
+            }
+        }
+
+        // COINS
+        for (let i = gameCoins.length - 1; i >= 0; i--) {
+            const c = gameCoins[i];
+            c.x -= 9; 
+            c.el.style.left = c.x + "px";
+            
+            if (c.x < 95 && c.x > 55) {  
+                const s = skins.find(s => s.color === currentSkin);
+                const gain = (s ? s.mult : 1);
+                coins += gain; 
+                showCoinPopup(gain, bottomPos);
+                updateUI(); 
+                save();
+                c.el.remove(); 
+                gameCoins.splice(i, 1);
+            }
+            if (c.x < -50) { 
+                c.el.remove(); 
+                gameCoins.splice(i, 1); 
+            }
+        }
+    }
+
+    // --- INIT ---
+    updateUI(); 
+    renderShop(); 
+    requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
+
